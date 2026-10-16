@@ -14,8 +14,8 @@ export async function POST(req: Request) {
     const chatId = body.message.chat.id;
     const userMessage = body.message.text;
 
-    // Coba gunakan model gemini-2.0-flash
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    // Pakai model resmi yang diminta Google: gemini-3.8-flash
+    const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
     
     const prompt = `Lu adalah CMO dari sistem agen AI LuPerluTau. Jawab dengan singkat, tegas, dan santai dalam bahasa Indonesia. Pesan dari R: "${userMessage}"`;
     
