@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
-// Inisialisasi Gemini menggunakan key CMO (atau ganti sesuai kebutuhan agent lu)
+// Inisialisasi Gemini menggunakan key CMO
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY_CMO || "");
 
 export async function POST(req: Request) {
@@ -16,8 +16,8 @@ export async function POST(req: Request) {
     const chatId = body.message.chat.id;
     const userMessage = body.message.text;
 
-    // Panggil model Gemini 1.5 Flash yang stabil
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Panggil model Gemini 2.5 Flash terbaru yang aktif
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     const prompt = `Lu adalah CMO dari sistem agen AI LuPerluTau. Jawab dengan singkat, tegas, dan profesional dalam bahasa Indonesia. Pesan dari R: "${userMessage}"`;
     
