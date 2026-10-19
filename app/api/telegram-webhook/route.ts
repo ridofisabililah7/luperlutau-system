@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
-export const maxDuration = 60; // Tetap simpan ini agar tidak kena limit durasi Vercel
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
@@ -15,9 +15,14 @@ export async function POST(req: Request) {
     const chatId = body.message.chat.id;
     const userMessage = body.message.text;
 
-    // 1. Inisialisasi Supabase
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ptmnercposhwbymijqag.supabase.co";
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    // 1. Inisialisasi Supabase dengan fallback URL & Key langsung
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      "https://ptmnercposhwbymijqag.supabase.co";
+    const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0bW5lcmNwb3Nod2J5bWlqcWFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIxNDYzMDgsImV4cCI6MjEwNzcyMjMwOH0.EgBxTqczQRkfrf9QMwCbGVmy60A0Ai8eJo1SOOWVNj8";
+
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // 2. Inisialisasi Gemini AI
@@ -29,7 +34,7 @@ Panggil lawan bicara "R". Karakter: Tegas, santai, taktis, to-the-point.
 ATURAN:
 1. Tidak ada janji proses latar belakang palsu atau oper tim fiktif.
 2. Jika diminta konsep konten/carousel, berikan teks slide lengkap dan sertakan IMAGE PROMPT bahasa Inggris untuk tiap slide.
-3. Jawab dalam 1 pesan terpadu yang ringkas.`
+3. Jawab dalam 1 pesan terpadu yang ringkas.`,
     });
 
     // 3. Proses AI
@@ -52,17 +57,17 @@ ATURAN:
       agent_name: "CMO_Orchestrator",
       action: "handle_telegram_message",
       status: "success",
-      payload: { prompt: userMessage, response_snippet: responseText.slice(0, 200) }
+      payload: { prompt: userMessage, response_snippet: responseText.slice(0, 200) },
     });
 
-    // 6. Simpan draft ke SocialQueue jika berkaitan dengan konten/carousel/ide
+    // 6. Simpan draft ke SocialQueue jika berkaitan dengan konten
     const lower = userMessage.toLowerCase();
     if (lower.includes("konten") || lower.includes("carousel") || lower.includes("ide")) {
       await supabase.from("SocialQueue").insert({
         platform: "instagram",
         topic: userMessage.slice(0, 100),
         caption: responseText,
-        status: "draft"
+        status: "draft",
       });
     }
 
