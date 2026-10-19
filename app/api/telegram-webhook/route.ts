@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     const chatId = body.message.chat.id;
     const userMessage = body.message.text;
 
-    // 1. Inisialisasi Supabase dengan fallback URL & Key langsung
+    // Inisialisasi Supabase di dalam handler dengan URL pasti
     const supabaseUrl =
       process.env.NEXT_PUBLIC_SUPABASE_URL ||
       "https://ptmnercposhwbymijqag.supabase.co";
@@ -25,10 +25,10 @@ export async function POST(req: Request) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 2. Inisialisasi Gemini AI
+    // Inisialisasi Gemini AI
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY_CMO || "");
     const model = genAI.getGenerativeModel({
-      model: "gemini-3.8-flash",
+      model: "gemini-2.5-flash",
       systemInstruction: `Lu adalah CMO dari ekosistem agen AI LuPerluTau. 
 Panggil lawan bicara "R". Karakter: Tegas, santai, taktis, to-the-point.
 ATURAN:
@@ -37,11 +37,11 @@ ATURAN:
 3. Jawab dalam 1 pesan terpadu yang ringkas.`,
     });
 
-    // 3. Proses AI
+    // Generate jawaban AI
     const result = await model.generateContent(userMessage);
     const responseText = result.response.text();
 
-    // 4. Kirim balasan ke Telegram
+    // Kirim balasan ke Telegram
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
       method: "POST",
@@ -52,7 +52,7 @@ ATURAN:
       }),
     });
 
-    // 5. Simpan Log ke Supabase (AgentLogs)
+    // Simpan Log ke Supabase (AgentLogs)
     await supabase.from("AgentLogs").insert({
       agent_name: "CMO_Orchestrator",
       action: "handle_telegram_message",
@@ -60,7 +60,7 @@ ATURAN:
       payload: { prompt: userMessage, response_snippet: responseText.slice(0, 200) },
     });
 
-    // 6. Simpan draft ke SocialQueue jika berkaitan dengan konten
+    // Simpan antrean konten jika relevan
     const lower = userMessage.toLowerCase();
     if (lower.includes("konten") || lower.includes("carousel") || lower.includes("ide")) {
       await supabase.from("SocialQueue").insert({
