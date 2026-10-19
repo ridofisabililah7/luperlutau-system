@@ -31,12 +31,12 @@ export async function POST(req: Request) {
     let slidesData: any = null;
 
     if (isContentRequest) {
-      // 1. Mode Konten: Minta output JSON terstruktur agar slides_content langsung rapi
+      // 1. Generate Struktur JSON untuk Konten
       const contentModel = genAI.getGenerativeModel({
         model: "gemini-3.5-flash",
         systemInstruction: `Lu adalah CMO dari ekosistem agen AI LuPerluTau. 
 Panggil lawan bicara "R". Karakter: Tegas, santai, taktis, to-the-point.
-Buat konsep carousel Instagram lengkap dengan teks slide dan image prompt bahasa Inggris.`,
+Buat konsep carousel Instagram bernilai tinggi lengkap dengan teks slide dan image prompt bahasa Inggris siap pakai.`,
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -44,8 +44,11 @@ Buat konsep carousel Instagram lengkap dengan teks slide dan image prompt bahasa
             properties: {
               summary_message: {
                 type: SchemaType.STRING,
-                description:
-                  "Pesan balasan ramah/taktis untuk Telegram yang memuat ringkasan konten dan teks slide.",
+                description: "Kalimat pembuka santai dan taktis dari CMO untuk R.",
+              },
+              concept_title: {
+                type: SchemaType.STRING,
+                description: "Judul konsep konten.",
               },
               slides: {
                 type: SchemaType.ARRAY,
@@ -62,29 +65,40 @@ Buat konsep carousel Instagram lengkap dengan teks slide dan image prompt bahasa
                 },
               },
             },
-            required: ["summary_message", "slides"],
+            required: ["summary_message", "concept_title", "slides"],
           },
         },
       });
 
       const result = await contentModel.generateContent(userMessage);
       const parsed = JSON.parse(result.response.text());
-      responseText = parsed.summary_message;
       slidesData = parsed.slides;
+
+      // Format teks lengkap agar rapi dan enak dibaca langsung di chat Telegram
+      let formattedSlides = `${parsed.summary_message}\n\n📌 *KONSEP: ${parsed.concept_title}*\n---\n`;
+      for (const s of parsed.slides) {
+        formattedSlides += `\n*SLIDE ${s.slide_number} (${s.type.toUpperCase()})*\n`;
+        formattedSlides += `• *Header:* ${s.header}\n`;
+        formattedSlides += `• *Body:* ${s.body}\n`;
+        formattedSlides += `• *Image Prompt:* \`${s.image_prompt}\`\n`;
+      }
+      formattedSlides += `\n---\nDraft otomatis udah masuk ke Supabase SocialQueue, R.`;
+
+      responseText = formattedSlides;
     } else {
-      // 2. Mode Diskusi Biasa: Jawaban teks polos
+      // 2. Chat Diskusi Umum
       const normalModel = genAI.getGenerativeModel({
         model: "gemini-3.5-flash",
         systemInstruction: `Lu adalah CMO dari ekosistem agen AI LuPerluTau. 
 Panggil lawan bicara "R". Karakter: Tegas, santai, taktis, to-the-point.
-Jawab to-the-point dalam 1 pesan ringkas.`,
+Jawab to-the-point dalam 1 pesan terpadu yang ringkas.`,
       });
 
       const result = await normalModel.generateContent(userMessage);
       responseText = result.response.text();
     }
 
-    // 3. Kirim balasan ke Telegram
+    // 3. Kirim ke Telegram (dengan format Markdown)
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
       method: "POST",
@@ -92,6 +106,7 @@ Jawab to-the-point dalam 1 pesan ringkas.`,
       body: JSON.stringify({
         chat_id: chatId,
         text: responseText,
+        parse_mode: "Markdown",
       }),
     });
 
@@ -99,7 +114,7 @@ Jawab to-the-point dalam 1 pesan ringkas.`,
     try {
       const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-      // Log aktivitas
+      // Log ke AgentLogs
       await supabase.from("AgentLogs").insert({
         agent_name: "CMO_Orchestrator",
         action: "handle_telegram_message",
@@ -107,14 +122,14 @@ Jawab to-the-point dalam 1 pesan ringkas.`,
         payload: { prompt: userMessage, response_snippet: responseText.slice(0, 200) },
       });
 
-      // Simpan ke SocialQueue jika permintaan konten
-      if (isContentRequest) {
+      // Simpan ke SocialQueue jika ada data slide
+      if (isContentRequest && slidesData) {
         await supabase.from("SocialQueue").insert({
           platform: "instagram",
           topic: userMessage.slice(0, 100),
           caption: responseText,
           status: "draft",
-          slides_content: slidesData, // Terisi JSON terstruktur otomatis
+          slides_content: slidesData,
         });
       }
     } catch (dbErr) {
