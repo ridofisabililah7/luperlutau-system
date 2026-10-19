@@ -1,13 +1,19 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
+// 1. Inisialisasi Supabase Client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// 2. Inisialisasi Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY_CMO || "");
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // Abaikan jika bukan pesan teks
     if (!body.message || !body.message.text) {
       return NextResponse.json({ ok: true });
     }
@@ -15,22 +21,22 @@ export async function POST(req: Request) {
     const chatId = body.message.chat.id;
     const userMessage = body.message.text;
 
-    // Eksekusi proses AI dan kirim balik ke Telegram
     const processMessage = async () => {
       try {
         const model = genAI.getGenerativeModel({
           model: "gemini-3.8-flash",
-          systemInstruction: `Lu adalah CMO dari sistem agen AI LuPerluTau. 
+          systemInstruction: `Lu adalah CMO dari ekosistem agen AI LuPerluTau. 
 Panggil lawan bicara "R". Karakter: Tegas, santai, taktis, to-the-point.
 ATURAN:
-1. Tidak ada janji proses latar belakang atau oper tim fiktif.
-2. Jika diminta konten carousel/desain, langsung berikan copywriting padat dan IMAGE PROMPT bahasa Inggris untuk tiap slide.
+1. Tidak ada janji proses latar belakang palsu atau oper tim fiktif.
+2. Jika diminta konsep konten/carousel, berikan teks slide lengkap dan sertakan IMAGE PROMPT siap pakai bahasa Inggris untuk tiap slide.
 3. Jawab dalam 1 pesan terpadu yang ringkas.`
         });
 
         const result = await model.generateContent(userMessage);
         const responseText = result.response.text();
 
+        // Kirim balasan ke Telegram
         const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
         await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
           method: "POST",
@@ -40,15 +46,32 @@ ATURAN:
             text: responseText,
           }),
         });
+
+        // Simpan Log ke Supabase (AgentLogs)
+        await supabase.from("AgentLogs").insert({
+          agent_name: "CMO_Orchestrator",
+          action: "handle_telegram_message",
+          status: "success",
+          payload: { prompt: userMessage, response_snippet: responseText.slice(0, 200) }
+        });
+
+        // Jika pesan berhubungan dengan konten/carousel, simpan draft ke SocialQueue
+        if (userMessage.toLowerCase().includes("konten") || userMessage.toLowerCase().includes("carousel")) {
+          await supabase.from("SocialQueue").insert({
+            platform: "instagram",
+            topic: userMessage.slice(0, 100),
+            caption: responseText,
+            status: "draft"
+          });
+        }
       } catch (err) {
-        console.error("Gagal proses AI / Telegram:", err);
+        console.error("Gagal proses AI / Database:", err);
       }
     };
 
-    // Jalankan tanpa menahan return HTTP agar Telegram tidak melakukan retry otomatis
+    // Jalankan eksekusi background agar tidak timeout
     processMessage();
 
-    // Langsung beri sinyal sukses ke Telegram dalam milidetik pertama
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     console.error("Webhook Error:", error);
