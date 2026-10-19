@@ -2,8 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
-export const maxDuration = 60; // Izinkan fungsi berjalan hingga selesai
-export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Tetap simpan ini agar tidak kena limit durasi Vercel
 
 export async function POST(req: Request) {
   try {
@@ -16,7 +15,7 @@ export async function POST(req: Request) {
     const chatId = body.message.chat.id;
     const userMessage = body.message.text;
 
-    // 1. Inisialisasi Supabase di dalam handler agar aman saat build time
+    // 1. Inisialisasi Supabase
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ptmnercposhwbymijqag.supabase.co";
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -37,7 +36,7 @@ ATURAN:
     const result = await model.generateContent(userMessage);
     const responseText = result.response.text();
 
-    // 4. Kirim balasan ke Telegram (wajib di-await agar tidak dimatikan Vercel)
+    // 4. Kirim balasan ke Telegram
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
       method: "POST",
@@ -56,7 +55,7 @@ ATURAN:
       payload: { prompt: userMessage, response_snippet: responseText.slice(0, 200) }
     });
 
-    // 6. Simpan draft ke SocialQueue jika terkait konten/carousel
+    // 6. Simpan draft ke SocialQueue jika berkaitan dengan konten/carousel/ide
     const lower = userMessage.toLowerCase();
     if (lower.includes("konten") || lower.includes("carousel") || lower.includes("ide")) {
       await supabase.from("SocialQueue").insert({
