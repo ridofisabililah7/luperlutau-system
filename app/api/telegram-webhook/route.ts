@@ -20,127 +20,72 @@ export async function POST(req: Request) {
     const userMessage = body.message.text;
     const lower = userMessage.toLowerCase();
 
-    // Deteksi intent pesan
-    const isArticleRequest =
-      lower.includes("artikel") ||
+    // Deteksi apakah pesan ini memicu workflow produksi konten
+    const isContentWorkflow =
       lower.includes("review") ||
       lower.includes("ulasan") ||
-      lower.includes("tulisan");
-
-    const isCarouselRequest =
-      !isArticleRequest &&
-      (lower.includes("konten") ||
-        lower.includes("carousel") ||
-        lower.includes("ide") ||
-        lower.includes("post") ||
-        lower.includes("sosmed"));
+      lower.includes("artikel") ||
+      lower.includes("konten") ||
+      lower.includes("carousel") ||
+      lower.includes("sepatu") ||
+      lower.includes("outfit") ||
+      lower.includes("brand");
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY_CMO || "");
     const webAI = new GoogleGenerativeAI(
       process.env.GEMINI_KEY_WEB || process.env.GEMINI_KEY_CMO || ""
     );
 
-    let responseText = "";
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    let responseText = "";
 
-    // ==========================================
-    // 1. DIVISI WEB MEDIA (T-11: Artikel Ulasan)
-    // ==========================================
-    if (isArticleRequest) {
+    if (isContentWorkflow) {
+      // ==========================================
+      // PIPELINE RELAY: WEB MEDIA + SOSMED PARALEL
+      // ==========================================
+
+      // 1. Eksekusi Divisi Web Media
       const articleModel = webAI.getGenerativeModel({
         model: "gemini-3.5-flash",
         systemInstruction: `Lu adalah Pemimpin Redaksi Divisi Web Media "LuPerluTau".
-Tone of voice: Tajam, informatif, conversational ala anak muda melek teknologi/lifestyle, anti-basa-basi korporat.
-Tugas: Buat artikel editorial/review mendalam berbasis Markdown dengan format JSON terstruktur lengkap dengan slug, SEO excerpt, pros, cons, dan konten ulasan.`,
+Tone of voice: Tajam, informatif, conversational, anti-basa-basi korporat.
+Tugas: Buat artikel editorial/review mendalam berbasis Markdown dengan format JSON terstruktur lengkap dengan slug, SEO excerpt, pros, cons, dan konten artikel ulasan mendalam.`,
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: {
             type: SchemaType.OBJECT,
             properties: {
-              title: { type: SchemaType.STRING, description: "Judul artikel SEO-friendly yang memancing klik" },
-              slug: { type: SchemaType.STRING, description: "slug url huruf kecil strip (e.g. review-salomon-xt6-streetwear)" },
-              excerpt: { type: SchemaType.STRING, description: "Ringkasan ulasan 2-3 kalimat untuk meta description" },
-              category: { type: SchemaType.STRING, description: "Kategori artikel (e.g. Fashion, Gadget, Lifestyle, Otomotif)" },
-              content: { type: SchemaType.STRING, description: "Isi artikel lengkap format Markdown (heading, spek, analisa pemakaian, kesimpulan)" },
-              pros: {
-                type: SchemaType.ARRAY,
-                items: { type: SchemaType.STRING },
-                description: "Daftar kelebihan ulasan produk"
-              },
-              cons: {
-                type: SchemaType.ARRAY,
-                items: { type: SchemaType.STRING },
-                description: "Daftar kekurangan ulasan produk"
-              },
-              telegram_summary: {
-                type: SchemaType.STRING,
-                description: "Laporan singkat santai untuk R bahwa artikel sudah masuk database portal web"
-              }
+              title: { type: SchemaType.STRING },
+              slug: { type: SchemaType.STRING },
+              excerpt: { type: SchemaType.STRING },
+              category: { type: SchemaType.STRING },
+              content: { type: SchemaType.STRING },
+              pros: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+              cons: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
             },
-            required: ["title", "slug", "excerpt", "category", "content", "pros", "cons", "telegram_summary"],
+            required: ["title", "slug", "excerpt", "category", "content", "pros", "cons"],
           },
         },
       });
 
-      const result = await articleModel.generateContent(userMessage);
-      const parsed = JSON.parse(result.response.text());
-
-      // Insert ke tabel articles (huruf kecil)
-      const { error: dbError } = await supabase.from("articles").insert({
-        title: parsed.title,
-        slug: parsed.slug,
-        excerpt: parsed.excerpt,
-        category: parsed.category,
-        content: parsed.content,
-        pros: parsed.pros,
-        cons: parsed.cons,
-        status: "draft"
-      });
-
-      // Format balasan Telegram
-      responseText = `${parsed.telegram_summary}\n\n📰 *ARTIKEL SIAP DRAF DI WEB:*\n*Judul:* ${parsed.title}\n*Kategori:* #${parsed.category}\n*Slug:* \`${parsed.slug}\`\n\n📌 *Excerpt:* \n_${parsed.excerpt}_\n\n✅ *Pros:* ${parsed.pros.join(", ")}\n❌ *Cons:* ${parsed.cons.join(", ")}\n\n---\nArtikel ulasan lengkap format Markdown udah tersimpan rapi di tabel *articles* Supabase, R!`;
-
-      // Log ke agent_logs
-      await supabase.from("agent_logs").insert({
-        agent_name: "WebMedia_Editor",
-        action: "handle_article_creation",
-        status: dbError ? "error" : "success",
-        payload: {
-          title: parsed.title,
-          slug: parsed.slug,
-          db_error: dbError || null
-        }
-      });
-
-    // ==========================================
-    // 2. DIVISI SOSMED (T-12: Carousel Instagram)
-    // ==========================================
-    } else if (isCarouselRequest) {
-      const contentModel = genAI.getGenerativeModel({
+      // 2. Eksekusi Divisi Sosmed (Carousel Instagram)
+      const sosmedModel = genAI.getGenerativeModel({
         model: "gemini-3.5-flash",
-        systemInstruction: `Lu adalah CMO dari ekosistem agen AI LuPerluTau. 
-Panggil lawan bicara "R". Karakter: Tegas, santai, taktis, to-the-point.
-Buat konsep carousel Instagram bernilai tinggi lengkap dengan teks slide dan image prompt bahasa Inggris siap pakai.`,
+        systemInstruction: `Lu adalah Kepala Tim Kreatif Sosmed "LuPerluTau".
+Tugas: Buat 5 slide carousel Instagram taktis bernilai tinggi (hook, breakdown poin, tips, cta) lengkap dengan image prompt bahasa Inggris siap pakai untuk AI image generator.`,
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: {
             type: SchemaType.OBJECT,
             properties: {
-              summary_message: {
-                type: SchemaType.STRING,
-                description: "Kalimat pembuka santai dan taktis dari CMO untuk R.",
-              },
-              concept_title: {
-                type: SchemaType.STRING,
-                description: "Judul konsep konten.",
-              },
+              concept_title: { type: SchemaType.STRING },
               slides: {
                 type: SchemaType.ARRAY,
                 items: {
                   type: SchemaType.OBJECT,
                   properties: {
                     slide_number: { type: SchemaType.INTEGER },
-                    type: { type: SchemaType.STRING, description: "hook, body, atau cta" },
+                    type: { type: SchemaType.STRING },
                     header: { type: SchemaType.STRING },
                     body: { type: SchemaType.STRING },
                     image_prompt: { type: SchemaType.STRING },
@@ -149,58 +94,78 @@ Buat konsep carousel Instagram bernilai tinggi lengkap dengan teks slide dan ima
                 },
               },
             },
-            required: ["summary_message", "concept_title", "slides"],
+            required: ["concept_title", "slides"],
           },
         },
       });
 
-      const result = await contentModel.generateContent(userMessage);
-      const parsed = JSON.parse(result.response.text());
+      // Jalankan kedua agen secara paralel agar super cepat
+      const [articleResult, sosmedResult] = await Promise.all([
+        articleModel.generateContent(
+          `Buat artikel ulasan lengkap berdasarkan topik ini: "${userMessage}"`
+        ),
+        sosmedModel.generateContent(
+          `Buat konsep carousel Instagram taktis berdasarkan topik ini: "${userMessage}"`
+        ),
+      ]);
 
-      // Format teks untuk Telegram
-      let formattedSlides = `${parsed.summary_message}\n\n📌 *KONSEP: ${parsed.concept_title}*\n---\n`;
-      for (const s of parsed.slides) {
+      const articleData = JSON.parse(articleResult.response.text());
+      const sosmedData = JSON.parse(sosmedResult.response.text());
+
+      // Simpan artikel ke database
+      await supabase.from("articles").insert({
+        title: articleData.title,
+        slug: articleData.slug,
+        excerpt: articleData.excerpt,
+        category: articleData.category,
+        content: articleData.content,
+        pros: articleData.pros,
+        cons: articleData.cons,
+        status: "draft",
+      });
+
+      // Rangkai teks lengkap untuk Telegram & Simpan ke SocialQueue
+      let formattedSlides = `📌 *KONSEP CAROUSEL: ${sosmedData.concept_title}*\n`;
+      for (const s of sosmedData.slides) {
         formattedSlides += `\n*SLIDE ${s.slide_number} (${s.type.toUpperCase()})*\n`;
         formattedSlides += `• *Header:* ${s.header}\n`;
         formattedSlides += `• *Body:* ${s.body}\n`;
         formattedSlides += `• *Image Prompt:* \`${s.image_prompt}\`\n`;
       }
-      formattedSlides += `\n---\nDraft otomatis udah masuk ke Supabase social_queue, R.`;
 
-      responseText = formattedSlides;
-
-      // Simpan ke tabel social_queue (huruf kecil)
       await supabase.from("social_queue").insert({
         platform: "instagram",
         topic: userMessage.slice(0, 100),
-        caption: responseText,
+        caption: formattedSlides,
         status: "draft",
-        slides_content: parsed.slides,
+        slides_content: sosmedData.slides,
       });
 
-      // Log ke agent_logs
+      // Catat log relay
       await supabase.from("agent_logs").insert({
-        agent_name: "CMO_Orchestrator",
-        action: "handle_telegram_message",
+        agent_name: "MultiAgent_Relay",
+        action: "parallel_web_and_social_dispatch",
         status: "success",
-        payload: { prompt: userMessage, response_snippet: responseText.slice(0, 200) },
+        payload: {
+          article_title: articleData.title,
+          carousel_title: sosmedData.concept_title,
+        },
       });
 
-    // ==========================================
-    // 3. DISKUSI UMUM / CHAT BIASA
-    // ==========================================
+      // Buat laporan CMO terpadu untuk R di Telegram
+      responseText = `Yo R! Sekali perintah langsung beres dua divisi seketika:\n\n📰 *DIVISI WEB MEDIA*\n• *Judul:* ${articleData.title}\n• *Kategori:* #${articleData.category}\n• *Slug:* \`${articleData.slug}\`\n• *Pros:* ${articleData.pros.join(", ")}\n• *Cons:* ${articleData.cons.join(", ")}\n_(Tersimpan di tabel \`articles\`)_\n\n---\n\n📱 *DIVISI SOSMED*\n${formattedSlides}\n_(Tersimpan di tabel \`social_queue\` siap render visual!)_`;
     } else {
-      const normalModel = genAI.getGenerativeModel({
+      // Mode obrolan biasa / non-konten
+      const cmoModel = genAI.getGenerativeModel({
         model: "gemini-3.5-flash",
         systemInstruction: `Lu adalah CMO dari ekosistem agen AI LuPerluTau. 
 Panggil lawan bicara "R". Karakter: Tegas, santai, taktis, to-the-point.
-Jawab to-the-point dalam 1 pesan terpadu yang ringkas.`,
+Jawab dalam 1 pesan terpadu yang ringkas.`,
       });
 
-      const result = await normalModel.generateContent(userMessage);
+      const result = await cmoModel.generateContent(userMessage);
       responseText = result.response.text();
 
-      // Log ke agent_logs
       await supabase.from("agent_logs").insert({
         agent_name: "CMO_Orchestrator",
         action: "handle_telegram_message",
