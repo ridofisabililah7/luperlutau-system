@@ -44,14 +44,14 @@ export async function POST(req: Request) {
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
     // ==========================================
-    // 1. DIVISI WEB MEDIA (T-11: Ulasan & Artikel)
+    // 1. DIVISI WEB MEDIA (T-11: Artikel Ulasan)
     // ==========================================
     if (isArticleRequest) {
       const articleModel = webAI.getGenerativeModel({
         model: "gemini-3.5-flash",
         systemInstruction: `Lu adalah Pemimpin Redaksi Divisi Web Media "LuPerluTau".
 Tone of voice: Tajam, informatif, conversational ala anak muda melek teknologi/lifestyle, anti-basa-basi korporat.
-Tugas: Buat artikel editorial/review mendalam berbasis Markdown dengan format JSON terstruktur lengkap dengan slug, SEO excerpt, dan konten ulasan yang kaya nilai.`,
+Tugas: Buat artikel editorial/review mendalam berbasis Markdown dengan format JSON terstruktur lengkap dengan slug, SEO excerpt, pros, cons, dan konten ulasan.`,
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -61,13 +61,23 @@ Tugas: Buat artikel editorial/review mendalam berbasis Markdown dengan format JS
               slug: { type: SchemaType.STRING, description: "slug url huruf kecil strip (e.g. review-salomon-xt6-streetwear)" },
               excerpt: { type: SchemaType.STRING, description: "Ringkasan ulasan 2-3 kalimat untuk meta description" },
               category: { type: SchemaType.STRING, description: "Kategori artikel (e.g. Fashion, Gadget, Lifestyle, Otomotif)" },
-              content: { type: SchemaType.STRING, description: "Isi artikel lengkap format Markdown (heading, spek, analisa pemakaian, pros, cons, kesimpulan)" },
+              content: { type: SchemaType.STRING, description: "Isi artikel lengkap format Markdown (heading, spek, analisa pemakaian, kesimpulan)" },
+              pros: {
+                type: SchemaType.ARRAY,
+                items: { type: SchemaType.STRING },
+                description: "Daftar kelebihan ulasan produk"
+              },
+              cons: {
+                type: SchemaType.ARRAY,
+                items: { type: SchemaType.STRING },
+                description: "Daftar kekurangan ulasan produk"
+              },
               telegram_summary: {
                 type: SchemaType.STRING,
                 description: "Laporan singkat santai untuk R bahwa artikel sudah masuk database portal web"
               }
             },
-            required: ["title", "slug", "excerpt", "category", "content", "telegram_summary"],
+            required: ["title", "slug", "excerpt", "category", "content", "pros", "cons", "telegram_summary"],
           },
         },
       });
@@ -75,45 +85,30 @@ Tugas: Buat artikel editorial/review mendalam berbasis Markdown dengan format JS
       const result = await articleModel.generateContent(userMessage);
       const parsed = JSON.parse(result.response.text());
 
-      // Insert ke tabel Articles (coba huruf besar dulu, jika gagal coba huruf kecil)
-      let insertError = null;
-      const resCapital = await supabase.from("Articles").insert({
+      // Insert ke tabel articles (huruf kecil)
+      const { error: dbError } = await supabase.from("articles").insert({
         title: parsed.title,
         slug: parsed.slug,
         excerpt: parsed.excerpt,
         category: parsed.category,
         content: parsed.content,
+        pros: parsed.pros,
+        cons: parsed.cons,
         status: "draft"
       });
 
-      if (resCapital.error) {
-        insertError = resCapital.error;
-        // Fallback coba ke nama tabel huruf kecil
-        const resLower = await supabase.from("articles").insert({
-          title: parsed.title,
-          slug: parsed.slug,
-          excerpt: parsed.excerpt,
-          category: parsed.category,
-          content: parsed.content,
-          status: "draft"
-        });
-        if (!resLower.error) {
-          insertError = null;
-        }
-      }
-
       // Format balasan Telegram
-      responseText = `${parsed.telegram_summary}\n\n📰 *ARTIKEL SIAP DRAF DI WEB:*\n*Judul:* ${parsed.title}\n*Kategori:* #${parsed.category}\n*Slug:* \`${parsed.slug}\`\n\n📌 *Excerpt:* \n_${parsed.excerpt}_\n\n---\nArtikel ulasan lengkap format Markdown udah diproses ke tabel *Articles* Supabase, R!`;
+      responseText = `${parsed.telegram_summary}\n\n📰 *ARTIKEL SIAP DRAF DI WEB:*\n*Judul:* ${parsed.title}\n*Kategori:* #${parsed.category}\n*Slug:* \`${parsed.slug}\`\n\n📌 *Excerpt:* \n_${parsed.excerpt}_\n\n✅ *Pros:* ${parsed.pros.join(", ")}\n❌ *Cons:* ${parsed.cons.join(", ")}\n\n---\nArtikel ulasan lengkap format Markdown udah tersimpan rapi di tabel *articles* Supabase, R!`;
 
-      // Log ke AgentLogs
-      await supabase.from("AgentLogs").insert({
+      // Log ke agent_logs
+      await supabase.from("agent_logs").insert({
         agent_name: "WebMedia_Editor",
         action: "handle_article_creation",
-        status: insertError ? "error" : "success",
+        status: dbError ? "error" : "success",
         payload: {
           title: parsed.title,
           slug: parsed.slug,
-          db_error: insertError ? insertError : null
+          db_error: dbError || null
         }
       });
 
@@ -170,12 +165,12 @@ Buat konsep carousel Instagram bernilai tinggi lengkap dengan teks slide dan ima
         formattedSlides += `• *Body:* ${s.body}\n`;
         formattedSlides += `• *Image Prompt:* \`${s.image_prompt}\`\n`;
       }
-      formattedSlides += `\n---\nDraft otomatis udah masuk ke Supabase SocialQueue, R.`;
+      formattedSlides += `\n---\nDraft otomatis udah masuk ke Supabase social_queue, R.`;
 
       responseText = formattedSlides;
 
-      // Simpan ke SocialQueue
-      await supabase.from("SocialQueue").insert({
+      // Simpan ke tabel social_queue (huruf kecil)
+      await supabase.from("social_queue").insert({
         platform: "instagram",
         topic: userMessage.slice(0, 100),
         caption: responseText,
@@ -183,8 +178,8 @@ Buat konsep carousel Instagram bernilai tinggi lengkap dengan teks slide dan ima
         slides_content: parsed.slides,
       });
 
-      // Log ke AgentLogs
-      await supabase.from("AgentLogs").insert({
+      // Log ke agent_logs
+      await supabase.from("agent_logs").insert({
         agent_name: "CMO_Orchestrator",
         action: "handle_telegram_message",
         status: "success",
@@ -205,8 +200,8 @@ Jawab to-the-point dalam 1 pesan terpadu yang ringkas.`,
       const result = await normalModel.generateContent(userMessage);
       responseText = result.response.text();
 
-      // Log ke AgentLogs
-      await supabase.from("AgentLogs").insert({
+      // Log ke agent_logs
+      await supabase.from("agent_logs").insert({
         agent_name: "CMO_Orchestrator",
         action: "handle_telegram_message",
         status: "success",
