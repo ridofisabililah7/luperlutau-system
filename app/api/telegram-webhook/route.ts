@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
-// Kunci URL & Key langsung sebagai konstanta string (100% mustahil undefined)
+// Supabase Credentials
 const SUPABASE_URL = "https://ptmnercposhwbymijqag.supabase.co";
 const SUPABASE_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0bW5lcmNwb3Nod2J5bWlqcWFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIxNDYzMDgsImV4cCI6MjEwNzcyMjMwOH0.EgBxTqczQRkfrf9QMwCbGVmy60A0Ai8eJo1SOOWVNj8";
@@ -20,10 +20,10 @@ export async function POST(req: Request) {
     const chatId = body.message.chat.id;
     const userMessage = body.message.text;
 
-    // 1. Inisialisasi Gemini AI
+    // 1. Inisialisasi Gemini AI dengan model gemini-3.5-flash
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY_CMO || "");
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.5-flash",
       systemInstruction: `Lu adalah CMO dari ekosistem agen AI LuPerluTau. 
 Panggil lawan bicara "R". Karakter: Tegas, santai, taktis, to-the-point.
 ATURAN:
@@ -36,7 +36,7 @@ ATURAN:
     const result = await model.generateContent(userMessage);
     const responseText = result.response.text();
 
-    // 3. Kirim ke Telegram lebih dulu (prioritas utama, bot pasti membalas)
+    // 3. Kirim ke Telegram lebih dulu
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
       method: "POST",
@@ -47,7 +47,7 @@ ATURAN:
       }),
     });
 
-    // 4. Simpan ke Supabase di dalam blok try-catch terpisah
+    // 4. Simpan ke Supabase (AgentLogs & SocialQueue)
     try {
       const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
